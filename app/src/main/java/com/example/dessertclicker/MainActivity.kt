@@ -64,6 +64,9 @@ import com.example.dessertclicker.data.Datasource
 import com.example.dessertclicker.model.Dessert
 import com.example.dessertclicker.ui.theme.DessertClickerTheme
 
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,40 +77,49 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    DessertClickerApp(desserts = Datasource.dessertList)
+                    DessertClickerApp()
                 }
             }
         }
     }
 }
 
-/**
- * Determine which dessert to show.Log
- */
-fun determineDessertToShow(
-    desserts: List<Dessert>,
-    dessertsSold: Int
-): Dessert {
-    var dessertToShow = desserts.first()
-    for (dessert in desserts) {
-        if (dessertsSold >= dessert.startProductionAmount) {
-            dessertToShow = dessert
-        } else {
-            // The list of desserts is sorted by startProductionAmount. As you sell more desserts,
-            // you'll start producing more expensive desserts as determined by startProductionAmount
-            // We know to break as soon as we see a dessert who's "startProductionAmount" is greater
-            // than the amount sold.
-            break
-        }
-    }
+@Composable
+private fun DessertClickerApp() {
+    val viewModel: DessertClickerViewModel = viewModel()
 
-    return dessertToShow
+    val desserts = remember { Datasource.dessertList }
+    viewModel.initialize(desserts)
+
+    Scaffold(
+        topBar = {
+            val intentContext = LocalContext.current
+            DessertClickerAppBar(
+                onShareButtonClicked = {
+                    shareSoldDessertsInformation(
+                        intentContext = intentContext,
+                        dessertsSold = viewModel.dessertsSold.value,
+                        revenue = viewModel.revenue.value
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
+    ) { contentPadding ->
+        DessertClickerScreen(
+            viewModel = viewModel,
+            modifier = Modifier.padding(contentPadding)
+        )
+    }
 }
 
-/**
- * Share desserts sold information using ACTION_SEND intent
- */
-private fun shareSoldDessertsInformation(intentContext: Context, dessertsSold: Int, revenue: Int) {
+fun shareSoldDessertsInformation(
+    intentContext: Context,
+    dessertsSold: Int,
+    revenue: Int
+) {
     val sendIntent = Intent().apply {
         action = Intent.ACTION_SEND
         putExtra(
@@ -120,7 +132,7 @@ private fun shareSoldDessertsInformation(intentContext: Context, dessertsSold: I
     val shareIntent = Intent.createChooser(sendIntent, null)
 
     try {
-        ContextCompat.startActivity(intentContext, shareIntent, null)
+        intentContext.startActivity(shareIntent)
     } catch (e: ActivityNotFoundException) {
         Toast.makeText(
             intentContext,
@@ -129,63 +141,47 @@ private fun shareSoldDessertsInformation(intentContext: Context, dessertsSold: I
         ).show()
     }
 }
-
 @Composable
-private fun DessertClickerApp(
-    desserts: List<Dessert>
+fun DessertClickerScreen(
+    viewModel: DessertClickerViewModel,
+    modifier: Modifier = Modifier
 ) {
-
-    var revenue by remember { mutableStateOf(0) }
-    var dessertsSold by remember { mutableStateOf(0) }
-
-    val currentDessertIndex by remember { mutableStateOf(0) }
-
-    var currentDessertPrice by remember {
-        mutableStateOf(desserts[currentDessertIndex].price)
-    }
-    var currentDessertImageId by remember {
-        mutableStateOf(desserts[currentDessertIndex].imageId)
-    }
-
-    Scaffold(
-        topBar = {
-            val intentContext = LocalContext.current
-            DessertClickerAppBar(
-                onShareButtonClicked = {
-                    shareSoldDessertsInformation(
-                        intentContext = intentContext,
-                        dessertsSold = dessertsSold,
-                        revenue = revenue
-                    )
-                },
+    Box(modifier = modifier) {
+        Image(
+            painter = painterResource(R.drawable.bakery_back),
+            contentDescription = null,
+            contentScale = ContentScale.Crop
+        )
+        Column {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.primary)
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                Image(
+                    painter = painterResource(viewModel.currentDessert.imageId),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .width(dimensionResource(R.dimen.image_size))
+                        .height(dimensionResource(R.dimen.image_size))
+                        .align(Alignment.Center)
+                        .clickable {
+                            viewModel.onDessertClicked(Datasource.dessertList)
+                        },
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            TransactionInfo(
+                revenue = viewModel.revenue.value,
+                dessertsSold = viewModel.dessertsSold.value,
+                modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
             )
         }
-    ) { contentPadding ->
-        DessertClickerScreen(
-            revenue = revenue,
-            dessertsSold = dessertsSold,
-            dessertImageId = currentDessertImageId,
-            onDessertClicked = {
-
-                // Update the revenue
-                revenue += currentDessertPrice
-                dessertsSold++
-
-                // Show the next dessert
-                val dessertToShow = determineDessertToShow(desserts, dessertsSold)
-                currentDessertImageId = dessertToShow.imageId
-                currentDessertPrice = dessertToShow.price
-            },
-            modifier = Modifier.padding(contentPadding)
-        )
     }
 }
 
 @Composable
-private fun DessertClickerAppBar(
+fun DessertClickerAppBar(
     onShareButtonClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -208,49 +204,6 @@ private fun DessertClickerAppBar(
                 imageVector = Icons.Filled.Share,
                 contentDescription = stringResource(R.string.share),
                 tint = MaterialTheme.colorScheme.onPrimary
-            )
-        }
-    }
-}
-
-@Composable
-fun DessertClickerScreen(
-    revenue: Int,
-    dessertsSold: Int,
-    @DrawableRes dessertImageId: Int,
-    onDessertClicked: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(modifier = modifier) {
-        Image(
-            painter = painterResource(R.drawable.bakery_back),
-            contentDescription = null,
-            contentScale = ContentScale.Crop
-        )
-        Column {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
-                Image(
-                    painter = painterResource(dessertImageId),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .width(dimensionResource(R.dimen.image_size))
-                        .height(dimensionResource(R.dimen.image_size))
-                        .align(Alignment.Center)
-                        .clickable {
-                            onDessertClicked()
-                            Log.d("DessertClickerScreen", "Dessert button clicked")
-                                   },
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            TransactionInfo(
-                revenue = revenue,
-                dessertsSold = dessertsSold,
-                modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
             )
         }
     }
@@ -321,6 +274,6 @@ private fun DessertsSoldInfo(dessertsSold: Int, modifier: Modifier = Modifier) {
 @Composable
 fun MyDessertClickerAppPreview() {
     DessertClickerTheme {
-        DessertClickerApp(listOf(Dessert(R.drawable.cupcake, 5, 0)))
+        DessertClickerApp()
     }
 }
